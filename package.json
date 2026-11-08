@@ -31,6 +31,7 @@
     "@types/react": "~19.3.0",
     "eslint": "^9.0.0",
     "eslint-config-expo": "~58.0.4",
+    "gh-pages": "^6.3.0",
     "typescript": "~6.0.3"
   },
   "scripts": {
@@ -39,7 +40,9 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
-    "lint": "expo lint"
+    "lint": "expo lint",
+    "predeploy": "expo export -p web && cp dist/index.html dist/404.html",
+    "deploy": "gh-pages --nojekyll -d dist -e mood-museum -m \"Deploy Mood Museum\" && gh-pages --add --nojekyll -d dist -s 404.html -m \"Deploy Mood Museum 404 fallback\""
   },
   "private": true
 }
