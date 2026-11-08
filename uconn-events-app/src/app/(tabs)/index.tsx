@@ -1,5 +1,7 @@
-import { useMemo, useState } from 'react';
-import { FlatList, StyleSheet, TextInput, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
+import { useState } from 'react';
+import { FlatList, Pressable, StyleSheet, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { EventCard } from '@/components/event-card';
@@ -11,14 +13,16 @@ import { useTheme } from '@/hooks/use-theme';
 
 export default function HomeScreen() {
   const theme = useTheme();
+  const router = useRouter();
   const [query, setQuery] = useState('');
-  const results = useMemo(() => filterEvents(query), [query]);
+  const results = filterEvents(query);
 
   return (
     <ThemedView style={styles.container}>
       <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
         <FlatList
           data={results}
+          style={styles.list}
           keyExtractor={(item: UConnEvent) => item.id}
           renderItem={({ item }) => <EventCard event={item} />}
           keyboardShouldPersistTaps="handled"
@@ -26,18 +30,32 @@ export default function HomeScreen() {
           contentContainerStyle={styles.listContent}
           ListHeaderComponent={
             <View style={styles.header}>
-              <ThemedText type="title" style={styles.title}>
-                UConn Events
-              </ThemedText>
-              <ThemedText type="small" themeColor="textSecondary">
-                Find what&apos;s happening on and around campus.
+              <View style={styles.titleRow}>
+                <ThemedText type="title" style={styles.title}>
+                  UConn Events
+                </ThemedText>
+                <View style={styles.headerIcons}>
+                  <Pressable
+                    onPress={() => router.push('/saved')}
+                    hitSlop={8}
+                    accessibilityRole="button"
+                    accessibilityLabel="View saved events"
+                    style={({ pressed }) => pressed && styles.pressed}>
+                    <Ionicons name="bookmark-outline" size={25} color={theme.text} />
+                  </Pressable>
+                  <Ionicons name="notifications-outline" size={26} color={theme.text} />
+                </View>
+              </View>
+              <ThemedText type="small" themeColor="textSecondary" style={styles.subtitle}>
+                Discover upcoming events on campus
               </ThemedText>
 
-              <ThemedView type="backgroundElement" style={styles.searchBox}>
+              <View style={[styles.searchBox, { backgroundColor: theme.backgroundElement }]}>
+                <Ionicons name="search" size={18} color={theme.textSecondary} />
                 <TextInput
                   value={query}
                   onChangeText={setQuery}
-                  placeholder="Search events, places, clubs…"
+                  placeholder="Search events..."
                   placeholderTextColor={theme.textSecondary}
                   autoCorrect={false}
                   returnKeyType="search"
@@ -53,16 +71,17 @@ export default function HomeScreen() {
                     Clear
                   </ThemedText>
                 )}
-              </ThemedView>
+              </View>
 
-              <ThemedText type="smallBold" style={styles.sectionTitle}>
+              <ThemedText type="default" style={styles.sectionTitle}>
                 Upcoming Events
               </ThemedText>
             </View>
           }
           ListEmptyComponent={
             <ThemedView style={styles.emptyState}>
-              <ThemedText type="default">No events match “{query.trim()}”.</ThemedText>
+              <Ionicons name="search-outline" size={32} color={theme.textSecondary} />
+              <ThemedText type="default">No events match &ldquo;{query.trim()}&rdquo;.</ThemedText>
               <ThemedText type="small" themeColor="textSecondary">
                 Try a different name, place, or keyword.
               </ThemedText>
@@ -77,47 +96,72 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    minHeight: 0,
   },
   safeArea: {
     flex: 1,
+    minHeight: 0,
     alignSelf: 'center',
     width: '100%',
     maxWidth: MaxContentWidth,
   },
+  list: {
+    flex: 1,
+    minHeight: 0,
+  },
   listContent: {
     paddingHorizontal: Spacing.three,
-    paddingTop: Spacing.three,
+    paddingTop: Spacing.two,
     paddingBottom: BottomTabInset + Spacing.five,
-    gap: Spacing.two,
+    gap: Spacing.three,
   },
   header: {
     gap: Spacing.two,
-    marginBottom: Spacing.three,
+    marginBottom: Spacing.one,
+  },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  headerIcons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.three,
+  },
+  pressed: {
+    opacity: 0.6,
   },
   title: {
-    fontSize: 34,
+    fontSize: 32,
     lineHeight: 40,
-    fontWeight: 700,
+    fontWeight: 800,
+    letterSpacing: -0.5,
+  },
+  subtitle: {
+    fontSize: 15,
+    lineHeight: 22,
   },
   searchBox: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.two,
-    borderRadius: Spacing.five,
+    borderRadius: Spacing.three,
     paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.two,
+    paddingVertical: Spacing.two + 2,
     marginTop: Spacing.one,
   },
   searchInput: {
     flex: 1,
-    fontSize: 16,
-    lineHeight: 24,
+    fontSize: 15,
+    lineHeight: 22,
     fontWeight: 500,
-    paddingVertical: Spacing.one,
+    padding: 0,
   },
   sectionTitle: {
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    fontSize: 20,
+    lineHeight: 28,
+    fontWeight: 700,
     marginTop: Spacing.two,
   },
   emptyState: {

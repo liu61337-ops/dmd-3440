@@ -9,21 +9,34 @@ import { Platform } from 'react-native';
 
 export const Colors = {
   light: {
-    text: '#000000',
-    background: '#ffffff',
-    backgroundElement: '#F0F0F3',
-    backgroundSelected: '#E0E1E6',
-    textSecondary: '#60646C',
-    /** UConn blue accent */
-    tint: '#0064B1',
+    /** Deep navy ink used for headings and body copy */
+    text: '#141A38',
+    background: '#FFFFFF',
+    /** Search field / info callout backgrounds */
+    backgroundElement: '#EEF0F6',
+    backgroundSelected: '#E4E7F3',
+    textSecondary: '#6B7280',
+    /** Indigo accent for links, buttons, and the active tab */
+    tint: '#4F46E5',
+    /** Elevated surface for cards */
+    card: '#FFFFFF',
+    border: '#E7E9F2',
+    /** Destructive / saved-heart red */
+    danger: '#E5484D',
+    /** Foreground for filled accent buttons */
+    onTint: '#FFFFFF',
   },
   dark: {
-    text: '#ffffff',
-    background: '#000000',
-    backgroundElement: '#212225',
-    backgroundSelected: '#2E3135',
-    textSecondary: '#B0B4BA',
-    tint: '#5AA9E6',
+    text: '#F3F4F8',
+    background: '#0A0C14',
+    backgroundElement: '#191D29',
+    backgroundSelected: '#262B3B',
+    textSecondary: '#9AA1B2',
+    tint: '#8B93F6',
+    card: '#131722',
+    border: '#262B3B',
+    danger: '#FF6B6B',
+    onTint: '#0A0C14',
   },
 } as const;
 
@@ -64,5 +77,5 @@ export const Spacing = {
   six: 64,
 } as const;
 
-export const BottomTabInset = Platform.select({ ios: 50, android: 80 }) ?? 0;
+export const BottomTabInset = Platform.select({ ios: 50, android: 80, web: 72 }) ?? 0;
 export const MaxContentWidth = 800;

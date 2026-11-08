@@ -6,115 +6,155 @@
 export type UConnEvent = {
   id: string;
   name: string;
-  /** ISO calendar date, e.g. "2026-09-25" */
+  /** ISO calendar date, e.g. "2026-09-30" */
   date: string;
-  /** e.g. "6:00 PM" */
+  /** Optional ISO end date for multi-day events, e.g. "2026-10-04" */
+  endDate?: string;
+  /** e.g. "11:00 AM" */
   startTime: string;
-  /** e.g. "8:00 PM" */
-  endTime?: string;
+  /** e.g. "3:00 PM" */
+  endTime: string;
   location: string;
   description: string;
+  /** Short tip shown in the "What to Bring" callout on the detail screen */
+  whatToBring?: string;
   imageUri: string;
 };
 
 export const events: UConnEvent[] = [
   {
-    id: 'evt-001',
+    id: 'evt-career-fair',
+    name: 'Career Fair',
+    date: '2026-09-30',
+    startTime: '11:00 AM',
+    endTime: '3:00 PM',
+    location: 'Student Union Ballroom',
+    description: 'Meet employers and explore internship and full-time opportunities.',
+    whatToBring: 'Resumes, business cards, and a positive attitude!',
+    imageUri: 'https://picsum.photos/seed/career-fair/600/450',
+  },
+  {
+    id: 'evt-movie-night',
+    name: 'Movie Night',
+    date: '2026-10-02',
+    startTime: '7:00 PM',
+    endTime: '10:00 PM',
+    location: 'Student Union Lawn',
+    description: 'Join us for a fun night with friends and a great movie!',
+    whatToBring: 'A blanket, some snacks, and your favorite crew!',
+    imageUri: 'https://picsum.photos/seed/movie-night/600/450',
+  },
+  {
+    id: 'evt-hackathon',
+    name: 'Hackathon',
+    date: '2026-10-03',
+    endDate: '2026-10-04',
+    startTime: '9:00 AM',
+    endTime: '5:00 PM',
+    location: 'Innovation Partnership Building',
+    description: 'Build solutions, win prizes, and collaborate with other Huskies.',
+    whatToBring: 'Laptop, charger, and a team (or come find one here)!',
+    imageUri: 'https://picsum.photos/seed/hackathon/600/450',
+  },
+  {
+    id: 'evt-involvement-fair',
     name: 'Fall Involvement Fair',
-    date: '2026-09-25',
+    date: '2026-10-09',
     startTime: '3:00 PM',
     endTime: '6:00 PM',
     location: 'Student Union Ballroom',
-    description:
-      'Meet 150+ student clubs and organizations and find your next thing on campus.',
-    imageUri: 'https://picsum.photos/seed/involvement-fair/400/400',
+    description: 'Meet 150+ student clubs and organizations and find your next thing on campus.',
+    whatToBring: 'Your student ID and an open mind.',
+    imageUri: 'https://picsum.photos/seed/involvement-fair/600/450',
   },
   {
-    id: 'evt-002',
-    name: 'Husky Hackathon 2026',
-    date: '2026-10-03',
-    startTime: '9:00 AM',
-    endTime: '9:00 PM',
-    location: 'ITE Building, Room 123',
-    description:
-      'A 24-hour build sprint with mentors, free food, and prizes for the best student prototypes.',
-    imageUri: 'https://picsum.photos/seed/husky-hackathon/400/400',
-  },
-  {
-    id: 'evt-003',
+    id: 'evt-research-symposium',
     name: 'Research Poster Symposium',
-    date: '2026-10-10',
+    date: '2026-10-16',
     startTime: '12:00 PM',
     endTime: '4:00 PM',
     location: 'Gampel Pavilion Concourse',
     description:
-      'Undergrad and grad students present faculty-mentored research across every college.',
-    imageUri: 'https://picsum.photos/seed/research-symposium/400/400',
+      'Undergraduate and graduate students present faculty-mentored research from every college.',
+    whatToBring: 'A few good questions — posters and coffee are on us.',
+    imageUri: 'https://picsum.photos/seed/research-symposium/600/450',
   },
   {
-    id: 'evt-004',
-    name: 'Night Market on Storrs',
-    date: '2026-10-17',
-    startTime: '5:30 PM',
-    endTime: '9:00 PM',
-    location: 'Storrs Center, Main Street',
-    description:
-      'Local food trucks, student performers, and makers market stalls light up downtown Storrs.',
-    imageUri: 'https://picsum.photos/seed/night-market/400/400',
-  },
-  {
-    id: 'evt-005',
-    name: 'Alumni Career Networking Night',
-    date: '2026-11-05',
-    startTime: '6:00 PM',
-    endTime: '8:30 PM',
-    location: 'Babbidge Library, Level 1',
-    description:
-      'Practice your elevator pitch with UConn alumni hiring for internships and entry-level roles.',
-    imageUri: 'https://picsum.photos/seed/alumni-networking/400/400',
-  },
-  {
-    id: 'evt-006',
+    id: 'evt-winter-formal',
     name: 'Winter Formal',
     date: '2026-11-14',
     startTime: '8:00 PM',
     endTime: '11:59 PM',
     location: 'Jorgensen Center Ballroom',
-    description:
-      'An evening of music, dancing, and photos with friends before finals week hits.',
-    imageUri: 'https://picsum.photos/seed/winter-formal/400/400',
+    description: 'An evening of music, dancing, and photos with friends before finals week.',
+    whatToBring: 'Formal attire and your student ID.',
+    imageUri: 'https://picsum.photos/seed/winter-formal/600/450',
   },
 ];
 
-const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const MONTHS = [
-  'Jan',
-  'Feb',
-  'Mar',
-  'Apr',
+  'January',
+  'February',
+  'March',
+  'April',
   'May',
-  'Jun',
-  'Jul',
-  'Aug',
-  'Sep',
-  'Oct',
-  'Nov',
-  'Dec',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
 ];
 
-/** "2026-09-25" -> "Fri, Sep 25" */
-export function formatEventDate(date: string): string {
+function parseDate(date: string): Date | null {
   const [year, month, day] = date.split('-').map(Number);
-  const parsed = new Date(year, (month ?? 1) - 1, day ?? 1);
-  if (Number.isNaN(parsed.getTime())) {
-    return date;
+  if (!year || !month || !day) {
+    return null;
   }
-  return `${WEEKDAYS[parsed.getDay()]}, ${MONTHS[parsed.getMonth()]} ${parsed.getDate()}`;
+  const parsed = new Date(year, month - 1, day);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
-/** "6:00 PM" + "8:00 PM" -> "6:00 PM – 8:00 PM" */
-export function formatEventTime(event: UConnEvent): string {
-  return event.endTime ? `${event.startTime} – ${event.endTime}` : event.startTime;
+/** "2026-09-30" -> "Sep 30" */
+function formatDay(date: string): string {
+  const parsed = parseDate(date);
+  if (!parsed) {
+    return date;
+  }
+  return `${MONTHS[parsed.getMonth()].slice(0, 3)} ${parsed.getDate()}`;
+}
+
+/** "2026-09-30" -> "Wednesday, September 30, 2026" */
+function formatFullDate(date: string): string {
+  const parsed = parseDate(date);
+  if (!parsed) {
+    return date;
+  }
+  return `${WEEKDAYS[parsed.getDay()]}, ${MONTHS[parsed.getMonth()]} ${parsed.getDate()}, ${parsed.getFullYear()}`;
+}
+
+/**
+ * Card line, e.g. "Sep 30, 11:00 AM – 3:00 PM"
+ * or "Oct 3, 9:00 AM – Oct 4, 5:00 PM" for multi-day events.
+ */
+export function formatEventCardDateTime(event: UConnEvent): string {
+  if (event.endDate) {
+    return `${formatDay(event.date)}, ${event.startTime} – ${formatDay(event.endDate)}, ${event.endTime}`;
+  }
+  return `${formatDay(event.date)}, ${event.startTime} – ${event.endTime}`;
+}
+
+/** Detail line, e.g. "Wednesday, September 30, 2026" */
+export function formatEventDateLong(event: UConnEvent): string {
+  const start = formatFullDate(event.date);
+  return event.endDate ? `${start} – ${formatFullDate(event.endDate)}` : start;
+}
+
+/** Detail line, e.g. "11:00 AM – 3:00 PM" */
+export function formatEventTimeRange(event: UConnEvent): string {
+  return `${event.startTime} – ${event.endTime}`;
 }
 
 /** Case-insensitive match across name, location, and description. */
