@@ -10,7 +10,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import {
-  ActivityIndicator,
   FlatList,
   Image,
   Pressable,
@@ -18,16 +17,29 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
+import { router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { EmptyFrame, MuseumButton, StateMessage } from '@/components/museum-ui';
+import { Museum } from '@/constants/museum';
 import { Fonts } from '@/constants/theme';
+import { fetchRelatedWords } from '@/lib/datamuse';
+import {
+  API_BASE,
+  errorMessage,
+  FALLBACK_IIIF_URL,
+  FETCH_OPTIONS,
+  iiifImageUrl,
+  normalizeText,
+} from '@/lib/artic';
 
 // ---------------------------------------------------------------------------
 // TEST FLAGS — flip to `true` to force a state, then reload the app.
 // ---------------------------------------------------------------------------
-/** Force the EMPTY state: searches for "zxqvbnm", which matches no artworks. */
+/** Force the EMPTY state: searches only for "zxqvbnm", which matches no artworks. */
 const TEST_EMPTY = false;
 /** Force a 404: calls the bogus endpoint /artworkz/search instead of /artworks/search. */
 const TEST_404 = false;
@@ -35,33 +47,33 @@ const TEST_404 = false;
 // ---------------------------------------------------------------------------
 // API configuration
 // ---------------------------------------------------------------------------
-const API_BASE = 'https://api.artic.edu/api/v1';
 const SEARCH_PATH = TEST_404 ? '/artworkz/search' : '/artworks/search';
-const FIELDS = 'id,title,artist_title,date_display,image_id,thumbnail';
+const FIELDS = ['id', 'title', 'artist_title', 'date_display', 'image_id', 'thumbnail'];
 const RESULT_LIMIT = 24;
-const FALLBACK_IIIF_URL = 'https://www.artic.edu/iiif/2';
 const EMPTY_QUERY = 'zxqvbnm'; // keyword used by TEST_EMPTY (guarantees 0 results)
+/** Where a feeling is looked for: titles and the museum's own subject / theme tags. */
+const MATCH_FIELDS = ['title^3', 'subject_titles^2', 'theme_titles^2', 'term_titles'];
 
 // ---------------------------------------------------------------------------
-// Moods → search keywords. Each mood has its own accent color used for the
-// selected chip and the loading spinner.
+// Moods → a main phrase plus related words (tested against the collection). Each mood
+// has its own accent color used for the selected tab, plate numbers, and spinner.
 // ---------------------------------------------------------------------------
 type Mood = {
   key: string;
   label: string;
-  emoji: string;
-  query: string;
+  phrase: string;
+  related: string[];
   color: string;
 };
 
 const MOODS: Mood[] = [
-  { key: 'calm', label: 'Calm', emoji: '🌊', query: 'tranquil', color: '#45A6C4' },
-  { key: 'lonely', label: 'Lonely', emoji: '🌙', query: 'solitude', color: '#5F6FA8' },
-  { key: 'joyful', label: 'Joyful', emoji: '🌼', query: 'celebration', color: '#E3A135' },
-  { key: 'melancholy', label: 'Melancholy', emoji: '🌧️', query: 'rain', color: '#708494' },
-  { key: 'dreamy', label: 'Dreamy', emoji: '✨', query: 'dream', color: '#B478D6' },
-  { key: 'restless', label: 'Restless', emoji: '⚡', query: 'storm', color: '#DF5B3F' },
-  { key: 'cozy', label: 'Cozy', emoji: '🕯️', query: 'interior', color: '#C4805A' },
+  { key: 'calm', label: 'Calm', phrase: 'tranquil', related: ['calm', 'serene', 'peaceful', 'quiet'], color: '#4F8FA6' },
+  { key: 'lonely', label: 'Lonely', phrase: 'solitude', related: ['lonely', 'alone', 'solitary', 'isolation'], color: '#5A6796' },
+  { key: 'joyful', label: 'Joyful', phrase: 'joy', related: ['celebration', 'festival', 'dance', 'merry', 'delight'], color: '#C08A2E' },
+  { key: 'melancholy', label: 'Melancholy', phrase: 'melancholy', related: ['rain', 'sorrow', 'mourning', 'gloom'], color: '#6B7C88' },
+  { key: 'dreamy', label: 'Dreamy', phrase: 'dream', related: ['reverie', 'fantasy', 'moonlight', 'sleep'], color: '#946CAD' },
+  { key: 'restless', label: 'Restless', phrase: 'storm', related: ['tempest', 'wind', 'turmoil', 'wave'], color: '#B4553E' },
+  { key: 'cozy', label: 'Cozy', phrase: 'interior', related: ['home', 'hearth', 'fireside', 'domestic'], color: '#A8714F' },
 ];
 
 // ---------------------------------------------------------------------------
@@ -90,21 +102,13 @@ type Artwork = {
   alt: string;
 };
 
-/** Returns `value` trimmed, or `fallback` when it is missing/blank. */
-function normalizeText(value: string | null | undefined, fallback: string): string {
-  const trimmed = typeof value === 'string' ? value.trim() : '';
-  return trimmed.length > 0 ? trimmed : fallback;
-}
-
 /** Transform one API item into a display-ready object with all fallbacks applied. */
 function toDisplayArtwork(raw: RawArtwork, iiifUrl: string): Artwork {
   const title = normalizeText(raw.title, 'Untitled');
   const artist = normalizeText(raw.artist_title, 'Unknown artist');
   const date = normalizeText(raw.date_display, 'Date unknown');
 
-  const imageId = typeof raw.image_id === 'string' ? raw.image_id.trim() : '';
-  const imageUrl =
-    imageId.length > 0 ? `${iiifUrl}/${imageId}/full/843,/0/default.jpg` : null;
+  const imageUrl = iiifImageUrl(iiifUrl, raw.image_id);
 
   const alt = normalizeText(raw.thumbnail?.alt_text, `${title} by ${artist}`);
 
@@ -118,54 +122,124 @@ function toDisplayArtwork(raw: RawArtwork, iiifUrl: string): Artwork {
   };
 }
 
-/** The keyword a mood searches for (TEST_EMPTY overrides it). */
-function queryFor(mood: Mood): string {
-  return TEST_EMPTY ? EMPTY_QUERY : mood.query;
+/**
+ * What is currently being searched: one of the preset moods, or a feeling the user
+ * typed themselves (`key: 'custom'`).
+ */
+type ActiveSearch = {
+  key: string;
+  label: string;
+  /** The user's own words (or a mood's main word) — must match as a whole. */
+  phrase: string;
+  /** Related words; `null` = look them up with the Datamuse API (typed moods). */
+  related: string[] | null;
+  color: string;
+};
+
+const CUSTOM_KEY = 'custom';
+const CUSTOM_COLOR = Museum.accent;
+/** Wait this long after the last keystroke before searching a typed mood. */
+const CUSTOM_DEBOUNCE_MS = 600;
+
+function searchForMood(mood: Mood): ActiveSearch {
+  return {
+    key: mood.key,
+    label: mood.label,
+    phrase: mood.phrase,
+    related: mood.related,
+    color: mood.color,
+  };
 }
 
-function buildSearchUrl(query: string): string {
-  const params =
-    `q=${encodeURIComponent(query)}` +
-    `&fields=${encodeURIComponent(FIELDS)}` +
-    `&limit=${RESULT_LIMIT}`;
-  return `${API_BASE}${SEARCH_PATH}?${params}`;
-}
-
-/** React Native's fetch rejects with TypeError("Network request failed") when offline. */
-function isNetworkError(error: unknown): boolean {
-  if (error instanceof TypeError) return true;
-  return (
-    error instanceof Error &&
-    /network request failed|fetch failed|network error/i.test(error.message)
-  );
+function searchForCustom(text: string): ActiveSearch {
+  return { key: CUSTOM_KEY, label: text, phrase: text, related: null, color: CUSTOM_COLOR };
 }
 
 /**
- * GET the search endpoint, check `response.ok`, parse with `response.json()`, and
- * transform each item into display-ready data. Throws on HTTP or network errors.
+ * Build GET /artworks/search?params=<JSON>. The API's plain `q=` search never returns
+ * zero results (unmatched words fall back to the whole collection), so instead we send an
+ * Elasticsearch query that only matches titles / subjects / themes:
+ *   - the phrase must match as a whole ("fall in love" ≠ "Niagara Falls"), OR
+ *   - any related word matches,
+ *   - and the work must have a digitized image.
  */
-async function requestArtworks(mood: Mood): Promise<Artwork[]> {
-  // `no-referrer`: on web, the API's Cloudflare firewall returns 403 (shown by the
-  // browser as a CORS error) when the Referer is http://localhost:… — omit it.
-  // Native fetch ignores this option.
-  const response = await fetch(buildSearchUrl(queryFor(mood)), { referrerPolicy: 'no-referrer' });
+function buildSearchUrl(phrase: string, related: string[]): string {
+  const should: object[] = [
+    { multi_match: { query: phrase, fields: MATCH_FIELDS, operator: 'and', boost: 3 } },
+  ];
+  if (related.length > 0) {
+    should.push({ multi_match: { query: related.join(' '), fields: MATCH_FIELDS } });
+  }
+  const params = {
+    fields: FIELDS,
+    limit: RESULT_LIMIT,
+    query: {
+      bool: {
+        filter: [{ exists: { field: 'image_id' } }],
+        must: { bool: { should, minimum_should_match: 1 } },
+      },
+    },
+  };
+  return `${API_BASE}${SEARCH_PATH}?params=${encodeURIComponent(JSON.stringify(params))}`;
+}
+
+type SearchResult = { artworks: Artwork[]; related: string[] };
+
+/**
+ * 1) For typed moods, ask Datamuse for related words (never fails the search).
+ * 2) GET the museum search, check `response.ok`, parse with `response.json()`, and
+ *    transform each item into display-ready data. Throws on HTTP or network errors.
+ */
+async function requestArtworks(search: ActiveSearch): Promise<SearchResult> {
+  const phrase = TEST_EMPTY ? EMPTY_QUERY : search.phrase;
+  const related = TEST_EMPTY ? [] : (search.related ?? (await fetchRelatedWords(phrase)));
+
+  // FETCH_OPTIONS sends no Referer (the API's firewall blocks localhost referrers on web).
+  const response = await fetch(buildSearchUrl(phrase, related), FETCH_OPTIONS);
   if (!response.ok) {
     throw new Error(`Request failed (HTTP ${response.status}). Please try again.`);
   }
   const json: SearchResponse = await response.json();
   const iiifUrl = normalizeText(json.config?.iiif_url, FALLBACK_IIIF_URL);
   const items = Array.isArray(json.data) ? json.data : [];
-  return items.map((item) => toDisplayArtwork(item, iiifUrl));
+  return { artworks: items.map((item) => toDisplayArtwork(item, iiifUrl)), related };
 }
 
 // ---------------------------------------------------------------------------
 // Artwork card
 // ---------------------------------------------------------------------------
-function ArtworkCard({ artwork }: { artwork: Artwork }) {
+/**
+ * Styled like a museum wall: the image hangs on its own (no white box, no shadow) with a
+ * small wall label underneath — plate number, serif title, small-caps artist, date.
+ */
+function ArtworkCard({
+  artwork,
+  index,
+  accent,
+}: {
+  artwork: Artwork;
+  index: number;
+  accent: string;
+}) {
   const [imageFailed, setImageFailed] = useState(false);
+  const plateNumber = String(index + 1).padStart(2, '0');
+  const canOpen = artwork.id.length > 0;
+
+  const openDetail = () => {
+    if (!canOpen) return;
+    router.push({
+      pathname: '/artwork/[id]',
+      params: { id: artwork.id, title: artwork.title },
+    });
+  };
 
   return (
-    <View style={styles.card}>
+    <Pressable
+      onPress={openDetail}
+      disabled={!canOpen}
+      accessibilityRole="button"
+      accessibilityLabel={`${artwork.title} by ${artwork.artist}. Open details.`}
+      style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}>
       {artwork.imageUrl && !imageFailed ? (
         <Image
           source={{ uri: artwork.imageUrl }}
@@ -184,18 +258,26 @@ function ArtworkCard({ artwork }: { artwork: Artwork }) {
           <Text style={styles.placeholderText}>Image not available</Text>
         </View>
       )}
-      <View style={styles.cardBody}>
-        <Text style={styles.cardTitle} numberOfLines={2}>
-          {artwork.title}
-        </Text>
-        <Text style={styles.cardArtist} numberOfLines={1}>
-          {artwork.artist}
-        </Text>
-        <Text style={styles.cardDate} numberOfLines={1}>
-          {artwork.date}
-        </Text>
+      <View style={styles.label}>
+        <Text style={[styles.plateNumber, { color: accent }]}>{plateNumber}</Text>
+        <View style={styles.labelText}>
+          <Text style={styles.cardTitle} numberOfLines={2}>
+            {artwork.title}
+          </Text>
+          <Text style={styles.cardArtist} numberOfLines={1}>
+            {artwork.artist}
+          </Text>
+          <Text style={styles.cardDate} numberOfLines={1}>
+            {artwork.date}
+          </Text>
+        </View>
+        {canOpen ? (
+          <Text style={styles.cardArrow} accessibilityElementsHidden importantForAccessibility="no">
+            →
+          </Text>
+        ) : null}
       </View>
-    </View>
+    </Pressable>
   );
 }
 
@@ -204,7 +286,11 @@ function ArtworkCard({ artwork }: { artwork: Artwork }) {
 // ---------------------------------------------------------------------------
 export default function HomeScreen() {
   // Three SEPARATE state variables for loading / data / error (+ one for pull-to-refresh).
-  const [moodIndex, setMoodIndex] = useState(0);
+  const [active, setActive] = useState<ActiveSearch>(() => searchForMood(MOODS[0]));
+  const [customText, setCustomText] = useState('');
+  // Words the last search also looked for (shown under the input for typed moods).
+  const [relatedWords, setRelatedWords] = useState<string[]>([]);
+  const [inputFocused, setInputFocused] = useState(false);
   const [artworks, setArtworks] = useState<Artwork[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -212,33 +298,29 @@ export default function HomeScreen() {
 
   // Monotonic request id: responses from older requests are ignored (stale guards).
   const requestIdRef = useRef(0);
+  // Pending debounce timer for the "type your own mood" input.
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   /**
-   * Fetch artworks for a mood and store the result. State is only updated inside the
+   * Fetch artworks for a search and store the result. State is only updated inside the
    * promise callbacks (after the network responds), so this is safe to call from useEffect.
    * Pull-to-refresh replaces the whole list (never appends).
    */
-  const loadArtworks = useCallback((moodIdx: number) => {
+  const loadArtworks = useCallback((search: ActiveSearch) => {
     const requestId = requestIdRef.current + 1;
     requestIdRef.current = requestId;
     // Stale response guard: a newer request has started, so drop this one.
     const isCurrent = () => requestId === requestIdRef.current;
 
-    const mood = MOODS[moodIdx] ?? MOODS[0];
-    return requestArtworks(mood)
-      .then((items) => {
+    return requestArtworks(search)
+      .then((result) => {
         // REPLACE the data (works for both initial load and pull-to-refresh).
-        if (isCurrent()) setArtworks(items);
+        if (!isCurrent()) return;
+        setArtworks(result.artworks);
+        setRelatedWords(result.related);
       })
       .catch((err: unknown) => {
-        if (!isCurrent()) return;
-        if (isNetworkError(err)) {
-          setError('You seem to be offline. Check your connection and try again.');
-        } else if (err instanceof Error) {
-          setError(err.message);
-        } else {
-          setError('Something went wrong. Please try again.');
-        }
+        if (isCurrent()) setError(errorMessage(err));
       })
       .finally(() => {
         // Only the newest request is allowed to clear the spinners.
@@ -254,14 +336,14 @@ export default function HomeScreen() {
    * clear any old error, then fetch. `isRefresh` picks which spinner shows.
    */
   const fetchArtworks = useCallback(
-    (moodIdx: number, isRefresh: boolean) => {
+    (search: ActiveSearch, isRefresh: boolean) => {
       if (isRefresh) {
         setRefreshing(true);
       } else {
         setLoading(true);
       }
       setError(null);
-      return loadArtworks(moodIdx);
+      return loadArtworks(search);
     },
     [loadArtworks],
   );
@@ -269,63 +351,94 @@ export default function HomeScreen() {
   // Initial load (fetch lives in useEffect, never in render). `loading` already starts
   // as true and `error` as null, so no state needs resetting before this first request.
   useEffect(() => {
-    void loadArtworks(0);
+    void loadArtworks(searchForMood(MOODS[0]));
   }, [loadArtworks]);
 
-  const handleSelectMood = useCallback(
-    (index: number) => {
-      setMoodIndex(index);
-      void fetchArtworks(index, false); // stale responses from the previous mood are ignored
-    },
-    [fetchArtworks],
+  const cancelPendingCustomSearch = () => {
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
+      debounceRef.current = null;
+    }
+  };
+
+  /** Start a new search (stale responses from the previous one are ignored). */
+  const startSearch = (search: ActiveSearch) => {
+    setActive(search);
+    void fetchArtworks(search, false);
+  };
+
+  const handleSelectMood = (mood: Mood) => {
+    cancelPendingCustomSearch();
+    setCustomText(''); // a preset chip replaces whatever was typed
+    startSearch(searchForMood(mood));
+  };
+
+  /** Typing: search automatically once the user pauses (debounced). */
+  const handleCustomChange = (text: string) => {
+    setCustomText(text);
+    cancelPendingCustomSearch();
+    const trimmed = text.trim();
+    if (trimmed.length === 0) return;
+    debounceRef.current = setTimeout(() => {
+      debounceRef.current = null;
+      startSearch(searchForCustom(trimmed));
+    }, CUSTOM_DEBOUNCE_MS);
+  };
+
+  /** Pressing Enter / Search on the keyboard searches right away. */
+  const handleCustomSubmit = () => {
+    cancelPendingCustomSearch();
+    const trimmed = customText.trim();
+    if (trimmed.length > 0) startSearch(searchForCustom(trimmed));
+  };
+
+  const handleRefresh = () => {
+    void fetchArtworks(active, true);
+  };
+
+  const handleRetry = () => {
+    void fetchArtworks(active, false); // a real new request
+  };
+
+  const accent = active.color;
+  const isCustomActive = active.key === CUSTOM_KEY;
+
+  const renderArtwork = ({ item, index }: { item: Artwork; index: number }) => (
+    <ArtworkCard artwork={item} index={index} accent={accent} />
   );
 
-  const handleRefresh = useCallback(() => {
-    void fetchArtworks(moodIndex, true);
-  }, [fetchArtworks, moodIndex]);
-
-  const handleRetry = useCallback(() => {
-    void fetchArtworks(moodIndex, false); // a real new request
-  }, [fetchArtworks, moodIndex]);
-
-  const mood = MOODS[moodIndex];
-  const accent = mood.color;
-
-  const renderArtwork = ({ item }: { item: Artwork }) => <ArtworkCard artwork={item} />;
-
   const renderEmpty = () => (
-    <View style={styles.centered}>
-      <Text style={styles.emptyEmoji}>🖼️</Text>
-      <Text style={styles.emptyTitle}>No art matches this feeling yet</Text>
-      <Text style={styles.emptyText}>Try picking a different mood above.</Text>
-    </View>
+    <StateMessage
+      illustration={<EmptyFrame />}
+      eyebrow="An empty wall"
+      title="No art matches this feeling yet"
+      body={
+        isCustomActive
+          ? 'Try another word (in English), or choose a mood above.'
+          : 'Try choosing a different mood above.'
+      }
+      accent={accent}
+    />
   );
 
   let content: ReactNode;
   if (loading) {
     content = (
-      <View style={styles.centered} accessibilityLabel="Loading artworks">
-        <ActivityIndicator size="large" color={accent} />
-        <Text style={styles.loadingText}>Finding art that feels {mood.label}…</Text>
-      </View>
+      <StateMessage
+        loading
+        eyebrow="Now curating"
+        title={`Finding art that feels ${isCustomActive ? `“${active.label}”` : active.label.toLowerCase()}…`}
+        accent={accent}
+      />
     );
   } else if (error) {
     content = (
-      <View style={styles.centered}>
-        <Text style={styles.errorEmoji}>⚠️</Text>
-        <Text style={styles.errorText}>{error}</Text>
-        <Pressable
-          onPress={handleRetry}
-          accessibilityRole="button"
-          accessibilityLabel="Retry"
-          style={({ pressed }) => [
-            styles.retryButton,
-            { backgroundColor: accent },
-            pressed && styles.pressed,
-          ]}>
-          <Text style={styles.retryLabel}>Retry</Text>
-        </Pressable>
-      </View>
+      <StateMessage
+        eyebrow="Gallery closed"
+        title={error}
+        accent={accent}
+        action={<MuseumButton label="Retry" onPress={handleRetry} color={accent} />}
+      />
     );
   } else {
     content = (
@@ -352,215 +465,274 @@ export default function HomeScreen() {
     <View style={styles.root}>
       <SafeAreaView style={styles.headerSafe} edges={['top']}>
         <View style={styles.header}>
+          <Text style={styles.overline}>A collection of feelings</Text>
           <Text style={styles.title}>Mood Museum</Text>
           <Text style={styles.subtitle}>How are you feeling today?</Text>
         </View>
 
+        {/* Mood "tabs": plain spaced capitals; the selected one is underlined in its color. */}
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.chipsRow}>
-          {MOODS.map((m, index) => {
-            const isSelected = index === moodIndex;
+          contentContainerStyle={styles.moodRow}>
+          {MOODS.map((m) => {
+            const isSelected = m.key === active.key;
             return (
               <Pressable
                 key={m.key}
-                onPress={() => handleSelectMood(index)}
+                onPress={() => handleSelectMood(m)}
                 accessibilityRole="button"
                 accessibilityState={{ selected: isSelected }}
-                accessibilityLabel={`${m.emoji} ${m.label}`}
+                accessibilityLabel={m.label}
                 style={({ pressed }) => [
-                  styles.chip,
-                  isSelected && { backgroundColor: m.color, borderColor: m.color },
+                  styles.moodTab,
+                  { borderBottomColor: isSelected ? m.color : 'transparent' },
                   pressed && styles.pressed,
                 ]}>
+                <View style={[styles.moodDot, { backgroundColor: m.color }, !isSelected && styles.moodDotIdle]} />
                 <Text
-                  style={[styles.chipLabel, isSelected && styles.chipLabelSelected]}
+                  style={[styles.moodLabel, isSelected && styles.moodLabelSelected]}
                   numberOfLines={1}>
-                  {m.emoji} {m.label}
+                  {m.label}
                 </Text>
               </Pressable>
             );
           })}
         </ScrollView>
+
+        {/* Custom mood: a single underline, like writing on a gallery card. */}
+        <View style={styles.customRow}>
+          <TextInput
+            value={customText}
+            onChangeText={handleCustomChange}
+            onSubmitEditing={handleCustomSubmit}
+            placeholder="or write your own feeling…"
+            placeholderTextColor={Museum.faint}
+            returnKeyType="search"
+            autoCapitalize="none"
+            autoCorrect={false}
+            clearButtonMode="while-editing"
+            accessibilityLabel="Type your own mood"
+            onFocus={() => setInputFocused(true)}
+            onBlur={() => setInputFocused(false)}
+            style={[
+              styles.customInput,
+              // Focus / active indicator is the underline itself (replaces the web focus box).
+              (inputFocused || isCustomActive) && {
+                borderBottomColor: isCustomActive ? CUSTOM_COLOR : Museum.ink,
+                borderBottomWidth: 2,
+              },
+            ]}
+          />
+          {isCustomActive && !loading && !error && relatedWords.length > 0 ? (
+            <Text style={styles.relatedWords} numberOfLines={2}>
+              also looking for: {relatedWords.join(' · ')}
+            </Text>
+          ) : null}
+        </View>
       </SafeAreaView>
 
       <View style={styles.content}>{content}</View>
 
       <SafeAreaView style={styles.footerSafe} edges={['bottom']}>
-        <Text style={styles.footer}>Artwork data: Art Institute of Chicago</Text>
+        <Text style={styles.footer}>Artwork data · Art Institute of Chicago</Text>
       </SafeAreaView>
     </View>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Styles — clean, gallery-like: off-white background, white rounded cards
+// Styles — museum wall: hairline rules, serif titles, spaced capitals, no boxes
 // ---------------------------------------------------------------------------
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: '#F7F5EF', // off-white gallery wall
+    backgroundColor: Museum.wall,
   },
   headerSafe: {
-    backgroundColor: '#F7F5EF',
+    backgroundColor: Museum.wall,
   },
   header: {
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 12,
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 8,
+  },
+  overline: {
+    fontSize: 11,
+    fontWeight: '600',
+    letterSpacing: 2.4,
+    textTransform: 'uppercase',
+    color: Museum.muted,
   },
   title: {
+    marginTop: 6,
     fontFamily: Fonts.serif,
-    fontSize: 34,
-    fontWeight: '700',
-    color: '#26221B',
+    fontSize: 38,
+    lineHeight: 44,
+    color: Museum.ink,
   },
   subtitle: {
-    marginTop: 6,
-    fontSize: 16,
-    color: '#6E675C',
+    marginTop: 2,
+    fontFamily: Fonts.serif,
+    fontStyle: 'italic',
+    fontSize: 17,
+    color: Museum.inkSoft,
   },
-  chipsRow: {
-    paddingHorizontal: 16,
-    paddingBottom: 12,
-    gap: 8,
+  moodRow: {
+    paddingHorizontal: 20,
+    gap: 22,
   },
-  chip: {
+  moodTab: {
     minHeight: 44, // ≥44pt touch target
-    borderRadius: 22,
-    paddingHorizontal: 16,
-    justifyContent: 'center',
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#E4E0D6',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    borderBottomWidth: 2,
   },
-  chipLabel: {
-    fontSize: 15,
+  moodDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+  },
+  moodDotIdle: {
+    opacity: 0.45,
+  },
+  moodLabel: {
+    fontSize: 12,
     fontWeight: '600',
-    color: '#3E3A31',
+    letterSpacing: 1.6,
+    textTransform: 'uppercase',
+    color: Museum.muted,
   },
-  chipLabelSelected: {
-    color: '#FFFFFF',
+  moodLabelSelected: {
+    color: Museum.ink,
   },
   pressed: {
-    opacity: 0.75,
+    opacity: 0.6,
+  },
+  customRow: {
+    paddingHorizontal: 20,
+    paddingTop: 8,
+    paddingBottom: 20,
+  },
+  customInput: {
+    minHeight: 44, // ≥44pt touch target
+    paddingHorizontal: 0,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: Museum.rule,
+    fontFamily: Fonts.serif,
+    fontStyle: 'italic',
+    fontSize: 17, // ≥16 avoids iOS Safari zoom-on-focus
+    color: Museum.ink,
+    // Web: no browser focus box — the underline shows focus instead. (`solid` is needed
+    // because the browser's default `outline-style: auto` ignores a width of 0.)
+    outlineStyle: 'solid',
+    outlineWidth: 0,
+  },
+  relatedWords: {
+    marginTop: 8,
+    fontFamily: Fonts.serif,
+    fontStyle: 'italic',
+    fontSize: 13,
+    lineHeight: 18,
+    color: Museum.muted,
   },
   content: {
     flex: 1,
   },
-  centered: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 32,
-    paddingVertical: 32,
-  },
-  loadingText: {
-    marginTop: 16,
-    fontSize: 16,
-    color: '#4A443B',
-    textAlign: 'center',
-  },
-  errorEmoji: {
-    fontSize: 28,
-    marginBottom: 12,
-  },
-  errorText: {
-    fontSize: 16,
-    color: '#4A443B',
-    textAlign: 'center',
-    lineHeight: 22,
-  },
-  retryButton: {
-    marginTop: 20,
-    minHeight: 44, // ≥44pt touch target
-    paddingHorizontal: 28,
-    borderRadius: 22,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  retryLabel: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  emptyEmoji: {
-    fontSize: 32,
-    marginBottom: 12,
-  },
-  emptyTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#26221B',
-    textAlign: 'center',
-  },
-  emptyText: {
-    marginTop: 6,
-    fontSize: 15,
-    color: '#6E675C',
-    textAlign: 'center',
-  },
   listContent: {
     flexGrow: 1,
-    paddingHorizontal: 16,
-    paddingTop: 4,
+    paddingHorizontal: 20,
+    paddingTop: 12,
     paddingBottom: 24,
   },
+  // Museum-wall card: no box, no shadow — the image hangs on the wall with a label below.
   card: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    marginBottom: 16,
-    overflow: 'hidden',
-    shadowColor: '#000000',
-    shadowOpacity: 0.08,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 3,
+    marginBottom: 44,
   },
   cardImage: {
     width: '100%',
-    height: 220,
-    backgroundColor: '#EFECE4',
+    height: 300,
+    backgroundColor: Museum.wallShade,
   },
   imagePlaceholder: {
     width: '100%',
-    height: 220,
-    backgroundColor: '#EFECE4',
+    height: 200,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Museum.rule,
+    borderStyle: 'dashed',
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 16,
   },
   placeholderText: {
+    fontFamily: Fonts.serif,
+    fontStyle: 'italic',
     fontSize: 14,
-    color: '#8A8375',
+    color: Museum.muted,
   },
-  cardBody: {
-    padding: 16,
+  // Wall label: hairline rule, plate number, then title / artist / date.
+  label: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginTop: 14,
+    paddingTop: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: Museum.rule,
+  },
+  plateNumber: {
+    width: 34,
+    paddingTop: 4,
+    fontFamily: Fonts.mono,
+    fontSize: 11,
+    letterSpacing: 1,
+  },
+  labelText: {
+    flex: 1,
   },
   cardTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#26221B',
+    fontFamily: Fonts.serif,
+    fontStyle: 'italic',
+    fontSize: 20,
+    lineHeight: 26,
+    color: Museum.ink,
   },
   cardArtist: {
-    marginTop: 4,
-    fontSize: 15,
-    color: '#4A443B',
+    marginTop: 6,
+    fontSize: 11,
+    fontWeight: '600',
+    letterSpacing: 1.6,
+    textTransform: 'uppercase',
+    color: Museum.inkSoft,
   },
   cardDate: {
-    marginTop: 4,
+    marginTop: 3,
+    fontFamily: Fonts.serif,
     fontSize: 13,
-    color: '#8A8375',
+    color: Museum.muted,
+  },
+  cardArrow: {
+    paddingTop: 2,
+    paddingLeft: 12,
+    fontSize: 18,
+    color: Museum.faint,
+  },
+  cardPressed: {
+    opacity: 0.7,
   },
   footerSafe: {
-    backgroundColor: '#F7F5EF',
+    backgroundColor: Museum.wall,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: Museum.ruleSoft,
   },
   footer: {
-    fontSize: 12,
-    color: '#8A8375',
+    fontSize: 10,
+    fontWeight: '600',
+    letterSpacing: 1.6,
+    textTransform: 'uppercase',
+    color: Museum.muted,
     textAlign: 'center',
-    paddingVertical: 8,
+    paddingVertical: 10,
     paddingHorizontal: 16,
   },
 });

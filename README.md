@@ -2,9 +2,12 @@
 
 A single-screen Expo / React Native app for **DMD 3440 — "Build an API-Powered App Screen"**.
 
-**User task:** Pick a mood from the chip row at the top, and the app shows artworks from the
-Art Institute of Chicago collection that match that feeling. Scroll the gallery, pull to refresh,
-or tap another mood to change the feeling. If something goes wrong, tap **Retry**.
+**User task:** Pick a mood from the row of mood tabs at the top, and the app shows artworks from the
+Art Institute of Chicago collection that match that feeling — or **type your own mood** (e.g.
+"heartbreak") and results load automatically once you pause typing — related words are looked
+up for you so the results fit the feeling. Scroll the gallery, pull to
+refresh, or tap another mood to change the feeling. **Tap any artwork** to open a detail page with a
+short introduction and facts about the work. If something goes wrong, tap **Retry**.
 
 ## Running the app
 
@@ -27,17 +30,48 @@ Then press `i` (iOS simulator), `a` (Android emulator), or scan the QR code with
 
 ### Query parameters used
 
-| Param | Value | Purpose |
+The search sends one `params` query parameter containing a JSON body (the API's documented
+alternative to POST, so the request stays a simple CORS `GET`):
+
+| Key | Value | Purpose |
 | --- | --- | --- |
-| `q` | mood keyword (`tranquil`, `solitude`, `celebration`, `rain`, `dream`, `storm`, `interior`) | full-text search |
-| `fields` | `id,title,artist_title,date_display,image_id,thumbnail` | only fetch the fields the screen needs (faster queries) |
+| `fields` | `id, title, artist_title, date_display, image_id, thumbnail` | only fetch the fields the screen needs |
 | `limit` | `24` | number of results |
+| `query.bool.filter` | `exists: image_id` | only works that have a digitized image |
+| `query.bool.must` | `multi_match` on `title^3, subject_titles^2, theme_titles^2, term_titles` | the mood's **phrase must match as a whole** (`operator: and`), **or** any related word matches |
 
-Example call:
+Each preset mood has a phrase + hand-tested related words (e.g. Calm → `tranquil` + calm,
+serene, peaceful, quiet). For a **typed** mood, related words come from a second API (below).
+
+**Why not plain `q=`?** Testing showed `q=` never returns zero results: an unmatched word
+(e.g. `heartbreak`, or even `zxqvbnm`) falls back to the *entire* collection (122,754 works),
+so users got random popular paintings and the empty state could never appear. Matching only
+titles / subjects / themes gives relevant works and a real empty result.
+
+Example call (decoded `params` shown on the second line):
 
 ```
-GET https://api.artic.edu/api/v1/artworks/search?q=rain&fields=id,title,artist_title,date_display,image_id,thumbnail&limit=24
+GET https://api.artic.edu/api/v1/artworks/search?params=%7B%22fields%22%3A...%7D
+params = {"fields":[...],"limit":24,"query":{"bool":{"filter":[{"exists":{"field":"image_id"}}],
+  "must":{"bool":{"should":[{"multi_match":{"query":"heartbreak","fields":[...],"operator":"and","boost":3}},
+  {"multi_match":{"query":"heartache grief woe sorrow angst anguish desperation","fields":[...]}}],
+  "minimum_should_match":1}}}}}
 ```
+
+### Second API: Datamuse (related words for typed moods)
+
+| Item | Value |
+| --- | --- |
+| API name | Datamuse API |
+| Docs | https://www.datamuse.com/api/ |
+| Method / endpoint | `GET https://api.datamuse.com/words?ml=<feeling>&max=16` (`ml` = "means like") |
+| Auth | **None** — no key; CORS enabled |
+| Rate limit | 100,000 requests/day without a key |
+| Example | `ml=heartbreak` → heartache, grief, woe, sorrow, angst, anguish, desperation |
+
+The app keeps up to 8 **single-word** results (multi-word ones like "take a fancy to" add noise)
+and shows them under the input as "also looking for: …". If Datamuse fails, the museum search
+still runs with the user's own words.
 
 ### Rate limits & attribution
 
@@ -100,7 +134,17 @@ ${config.iiif_url}/${image_id}/full/843,/0/default.jpg
 
 ## How the app is structured
 
-- Screen: `src/app/index.tsx` (the only route; `src/app/_layout.tsx` is a plain stack with no tabs)
+- Gallery screen: `src/app/index.tsx`; `src/app/_layout.tsx` is a plain stack with no tabs
+- Detail screen: `src/app/artwork/[id].tsx` (opened by tapping a card)
+- Shared API helpers: `src/lib/artic.ts` (fetch options, fallbacks, error messages, detail request)
+  and `src/lib/datamuse.ts` (related words for typed moods)
+- Web: `app.json` uses `web.output: "single"` (a plain single-page app — the default
+  `"server"` mode's dev-time server rendering kept failing with Metro "Requiring unknown module"
+  errors, causing 500s, 30-second loads, and reload loops). `public/index.html` is the page
+  template and adds `<meta name="referrer" content="no-referrer">`: the museum's Cloudflare
+  firewall returns 403 for API/image requests with a `localhost` Referer
+- Visual language: `src/constants/museum.ts` (palette) and `src/components/museum-ui.tsx`
+  (shared loading / empty / error message and outlined button)
 - `fetch()` runs only inside `useEffect` and event handlers — never during render
 - `loading`, `artworks` (data), and `error` are **separate** `useState` variables
   (plus `refreshing` for pull-to-refresh)
@@ -108,6 +152,15 @@ ${config.iiif_url}/${image_id}/full/843,/0/default.jpg
   `Untitled` / `Unknown artist` / `Date unknown` / `Image not available` (missing `image_id` **or**
   `Image` `onError`)
 - A `requestIdRef` counter discards stale responses when moods are tapped quickly
+- **Optional extension — detail screen + second endpoint:** tapping a card pushes
+  `/artwork/[id]`, which calls `GET /api/v1/artworks/{id}?fields=…short_description,description,
+  medium_display,place_of_origin,dimensions,credit_line`. The intro uses `short_description`
+  (plain text); if missing, the HTML `description` is converted to plain text (and a CC BY 4.0
+  credit is shown); if both are missing, a "no introduction yet" note appears. The detail screen
+  has its own loading / error + Retry states, and a 404 shows "This artwork could not be found."
+- **Optional extension — debounced search input:** "Or type your own mood…" searches automatically
+  600 ms after the user stops typing (one request, not one per keystroke); pressing Enter searches
+  immediately. Tapping a preset mood chip clears the input
 - Pull-to-refresh **replaces** the list (never appends), so repeated refreshes can't duplicate items
 - Four states: loading spinner ("Finding art that feels *Mood*…"), success list, empty
   (`ListEmptyComponent`: "No art matches this feeling yet"), and error + **Retry** (with an
@@ -118,7 +171,7 @@ ${config.iiif_url}/${image_id}/full/843,/0/default.jpg
 At the top of `src/app/index.tsx`:
 
 ```ts
-const TEST_EMPTY = false; // true → searches "zxqvbnm" (forces the empty state)
+const TEST_EMPTY = false; // true → searches only "zxqvbnm" (forces the empty state)
 const TEST_404   = false; // true → calls /artworkz/search (forces a 404 error)
 ```
 
@@ -133,7 +186,11 @@ Flip either to `true` and reload the app.
 | Empty result | Set `TEST_EMPTY = true`, reload | "No art matches this feeling yet" via `ListEmptyComponent` | |
 | Invalid endpoint / 404 | Set `TEST_404 = true`, reload | Error state with HTTP 404 message + Retry button; Retry issues a real new request | |
 | Airplane mode / offline | Enable airplane mode, tap a mood or Retry | Offline message ("You seem to be offline…") + Retry | |
-| Missing optional field | Find an artwork with no `image_id` (or no title/artist/date) | Placeholder box "Image not available"; "Untitled" / "Unknown artist" / "Date unknown" fallbacks | |
+| Missing optional field | The search filters out works with no `image_id`, but some images are still refused by the server (e.g. "Shoki in Love" for "fall in love" returns 403); also open a detail page with no description | Placeholder box "Image not available"; "Untitled" / "Unknown artist" / "Date unknown" fallbacks | |
+| Custom mood (debounced) | Type "heartbreak" in the input and pause | One Datamuse + one museum request after ~0.6 s (not one per keystroke); "also looking for: heartache · grief · …" appears; results like *Escape in Anguish*, *Sorrow* | |
+| Custom mood, no match | Type "qzxvbn" | Real empty state ("An empty wall") — no random fallback paintings | |
+| Detail screen | Tap an artwork card | Detail page with large image, intro (or "no introduction yet" fallback), and Medium / Place / Dimensions / Credit | |
+| Detail 404 | Open `/artwork/999999999` on web | "This artwork could not be found." + Retry; "← Gallery" returns home | |
 | Repeated refresh | Pull to refresh several times quickly, then wait | List is replaced each time — no duplicate cards; only the newest response renders | |
 
 ## State sketch (wireframe)
@@ -168,7 +225,8 @@ Goal: show that the screen's data comes **live from the Art Institute of Chicago
 - [ ] Tap 2–3 different moods → new artworks load each time (a new request per tap)
 - [ ] Pull to refresh → the list is replaced, no duplicate cards
 - [ ] **Prove it's an external API:** run the web version with browser DevTools → Network tab open,
-      tap a mood, and click the `api.artic.edu/api/v1/artworks/search?q=…` request to show its JSON response
+      tap a mood, and click the `api.artic.edu/api/v1/artworks/search?params=…` request to show its JSON response
+      (type your own mood to also show the `api.datamuse.com/words?ml=…` request)
 - [ ] Error state: turn on airplane mode (or set `TEST_404 = true`) → error message + tap **Retry**
 - [ ] (Optional) Empty state: set `TEST_EMPTY = true` → "No art matches this feeling yet"
 - [ ] Upload the video (keep it short; trim if needed)
