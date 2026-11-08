@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta httpEquiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />
+    <!--
+      Mood Museum: send no Referer header. The Art Institute of Chicago's Cloudflare firewall
+      answers API + image requests that carry "Referer: http://localhost:…" with 403, which
+      shows up as a CORS error / broken images during local web development.
+    -->
+    <meta name="referrer" content="no-referrer" />
+    <title>Mood Museum</title>
+    <!-- The `react-native-web` recommended style reset: https://necolas.github.io/react-native-web/docs/setup/#root-element -->
+    <style id="expo-reset">
+      /* These styles make the body full-height */
+      html,
+      body {
+        height: 100%;
+      }
+      /* These styles disable body scrolling if you are using <ScrollView> */
+      body {
+        overflow: hidden;
+      }
+      /* These styles make the root element full-height */
+      #root {
+        display: flex;
+        height: 100%;
+        flex: 1;
+      }
+    </style>
+  <link rel="icon" href="/dmd-3440/mood-museum/favicon.ico"/><link rel="preload" href="/dmd-3440/mood-museum/_expo/static/css/animated-icon.module-eec65aa47fc61787231f45ae14d688f6.css" as="style">
+<link rel="stylesheet" href="/dmd-3440/mood-museum/_expo/static/css/animated-icon.module-eec65aa47fc61787231f45ae14d688f6.css"><link rel="preload" href="/dmd-3440/mood-museum/_expo/static/css/global-87fd0564cfa78f37afcb8d7603e15d75.css" as="style">
+<link rel="stylesheet" href="/dmd-3440/mood-museum/_expo/static/css/global-87fd0564cfa78f37afcb8d7603e15d75.css"></head>
+
+  <body>
+    <!-- Use static rendering with Expo Router to support running without JavaScript. -->
+    <noscript> You need to enable JavaScript to run this app. </noscript>
+    <!-- The root element for your Expo app. -->
+    <div id="root"></div>
+  <script src="/dmd-3440/mood-museum/_expo/static/js/web/__expo-metro-runtime-ed4c1cfa6193d76fc294130e42bd1916.js" defer></script><script src="/dmd-3440/mood-museum/_expo/static/js/web/__common-17a72a261ed3e3277b7eaa27b36f3a3b.js" defer></script><script src="/dmd-3440/mood-museum/_expo/static/js/web/entry-d027c8d361c74192385cbc87707b60a8.js" defer></script>
+</body>
+</html>
